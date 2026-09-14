@@ -1,0 +1,48 @@
+name: backend-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build, test and gate coverage
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      # Directory.Build.props sets TreatWarningsAsErrors, so a warning fails this step.
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test with coverage gate
+        shell: pwsh
+        run: ./scripts/Test-Coverage.ps1 -Threshold 80 -Configuration Release
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.cobertura.xml
+          if-no-files-found: warn

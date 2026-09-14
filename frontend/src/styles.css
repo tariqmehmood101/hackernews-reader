@@ -1,0 +1,111 @@
+/*
+ * Light is the default. Dark is opt-in via the header toggle, which stamps
+ * data-theme="dark" on <html> — no automatic switch on system preference.
+ */
+:root {
+  --measure: 58rem;
+
+  --bg: #f7f8fa;
+  --bg-accent: radial-gradient(1200px 380px at 50% -180px, #fff3ea 0%, transparent 70%);
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f2f4f7;
+  --row-alt: #f3f6f9;
+  --row-hover: #fff4ea;
+  --skeleton-sheen: #e8ebef;
+
+  --text: #101828;
+  --text-soft: #344054;
+  --muted: #667085;
+  --muted-soft: #98a2b3;
+
+  --border: #e4e7ec;
+  --border-strong: #d0d5dd;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-md: 0 4px 10px -2px rgb(16 24 40 / 0.08), 0 2px 4px -2px rgb(16 24 40 / 0.05);
+
+  --accent: #e35f16;
+  --accent-hover: #c94f10;
+  --accent-contrast: #ffffff;
+  --accent-soft: #fff4ed;
+  --accent-border: #f9c9a8;
+  --accent-ring: rgb(227 95 22 / 0.16);
+  --highlight: #ffe08a;
+  --highlight-text: #3b2a06;
+
+  --danger: #b42318;
+  --danger-border: #fda29b;
+  --danger-soft: #fef3f2;
+
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #101114;
+  --bg-accent: radial-gradient(1200px 380px at 50% -180px, rgb(227 95 22 / 0.10) 0%, transparent 70%);
+  --surface: #17191d;
+  --surface-raised: #1c1f24;
+  --surface-sunken: #212530;
+  /* Tuned so the banding contrast (1.09) matches the light theme (1.08) rather than fading out. */
+  --row-alt: #1e2128;
+  --row-hover: rgb(248 127 61 / 0.10);
+  --skeleton-sheen: #2b303a;
+
+  --text: #eceef1;
+  --text-soft: #cdd2d9;
+  --muted: #949cab;
+  --muted-soft: #656d7b;
+
+  --border: #262a32;
+  --border-strong: #363c47;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 14px -2px rgb(0 0 0 / 0.5);
+
+  --accent: #f87f3d;
+  --accent-hover: #fa9761;
+  --accent-contrast: #1a1103;
+  --accent-soft: rgb(248 127 61 / 0.14);
+  --accent-border: rgb(248 127 61 / 0.35);
+  --accent-ring: rgb(248 127 61 / 0.25);
+  --highlight: rgb(248 127 61 / 0.34);
+  --highlight-text: inherit;
+
+  --danger: #fda29b;
+  --danger-border: #7a2e27;
+  --danger-soft: rgb(180 35 24 / 0.14);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background-color: var(--bg);
+  background-image: var(--bg-accent);
+  background-repeat: no-repeat;
+  color: var(--text);
+  font-family:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

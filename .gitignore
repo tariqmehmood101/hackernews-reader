@@ -1,0 +1,28 @@
+# ---- .NET ----
+bin/
+obj/
+[Bb]uild/
+*.user
+*.suo
+.vs/
+
+# Test + coverage output
+TestResults/
+coverage.cobertura.xml
+*.coverage
+
+# ---- Node / Angular ----
+node_modules/
+dist/
+.angular/
+npm-debug.log*
+
+# ---- Editors / OS ----
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- Secrets ----
+# MediatR licence keys and any local overrides belong in user secrets or App Service settings.
+appsettings.*.local.json
+*.env

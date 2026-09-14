@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration>
+  <CodeCoverage>
+
+    <!-- Only our own assembly counts; test projects and third-party code are not the subject. -->
+    <ModulePaths>
+      <Include>
+        <ModulePath>.*HackerNews\.Api\.dll$</ModulePath>
+      </Include>
+    </ModulePaths>
+
+    <!-- Source generators (OpenAPI XML comment support) emit large untestable files into obj/. -->
+    <Sources>
+      <Exclude>
+        <Source>.*\obj\.*</Source>
+      </Exclude>
+    </Sources>
+
+    <Attributes>
+      <Exclude>
+        <Attribute>^System\.CodeDom\.Compiler\.GeneratedCodeAttribute$</Attribute>
+        <Attribute>^System\.Runtime\.CompilerServices\.CompilerGeneratedAttribute$</Attribute>
+        <Attribute>^System\.Diagnostics\.CodeAnalysis\.ExcludeFromCodeCoverageAttribute$</Attribute>
+      </Exclude>
+    </Attributes>
+
+  </CodeCoverage>
+</Configuration>

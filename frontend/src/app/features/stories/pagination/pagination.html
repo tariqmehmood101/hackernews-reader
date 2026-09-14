@@ -1,0 +1,39 @@
+@if (totalPages() > 1) {
+  <nav class="pager" aria-label="Story pages">
+    <button
+      type="button"
+      class="pager__step"
+      [disabled]="!canGoFirst() || disabled()"
+      (click)="first()"
+    >
+      First
+    </button>
+
+    <!--
+      Tracked by page number, not by index: the window slides, so index 2 is page 10 one moment
+      and page 11 the next. Tracking by index would keep the same five DOM nodes and relabel them,
+      which silently moves a focused button onto a different page.
+    -->
+    @for (p of pages(); track p) {
+      <button
+        type="button"
+        class="pager__page"
+        [class.pager__page--current]="p === page()"
+        [attr.aria-current]="p === page() ? 'page' : null"
+        [disabled]="disabled()"
+        (click)="goTo(p)"
+      >
+        {{ p }}
+      </button>
+    }
+
+    <button
+      type="button"
+      class="pager__step"
+      [disabled]="!canGoLast() || disabled()"
+      (click)="last()"
+    >
+      Last
+    </button>
+  </nav>
+}

@@ -1,0 +1,13 @@
+# Normalise line endings so Windows checkouts and Linux CI agree.
+* text=auto eol=lf
+
+*.sln        text eol=crlf
+*.slnx       text eol=crlf
+*.ps1        text eol=crlf
+*.cmd        text eol=crlf
+*.bat        text eol=crlf
+
+*.png        binary
+*.jpg        binary
+*.ico        binary
+*.woff2      binary

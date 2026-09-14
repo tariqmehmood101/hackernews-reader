@@ -1,0 +1,60 @@
+name: e2e-live
+
+# The genuine end-to-end pass: real API, real Hacker News feed, real browser.
+# Not on every push — it depends on a third-party service, so it runs nightly and on demand.
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  full-stack:
+    name: Full-stack end-to-end
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Start the API
+        working-directory: backend
+        run: |
+          dotnet run --project src/HackerNews.Api --configuration Release &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5070/health > /dev/null; then
+              echo "API is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become healthy in time"; exit 1
+
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install chromium --with-deps
+
+      - name: End-to-end tests
+        working-directory: frontend
+        run: npm run e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-live
+          path: frontend/playwright-report/
+          retention-days: 7

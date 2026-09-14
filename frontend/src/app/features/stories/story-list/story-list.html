@@ -1,0 +1,229 @@
+<header class="masthead">
+  <div class="masthead__inner">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">Y</span>
+      <span class="brand__text">
+        <span class="brand__title">Newest Stories</span>
+        <span class="brand__sub">Live from Hacker News</span>
+      </span>
+    </div>
+
+    <div class="search">
+      <svg class="search__icon" viewBox="0 0 20 20" aria-hidden="true">
+        <circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="M13.5 13.5 L18 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </svg>
+
+      <input
+        #searchBox
+        type="text"
+        class="search__input"
+        placeholder="Search stories by title or author…"
+        aria-label="Search stories"
+        autocomplete="off"
+        maxlength="100"
+        [value]="searchText()"
+        (input)="onSearchInput($any($event.target).value)"
+      />
+
+      @if (searchText()) {
+        <button type="button" class="search__clear" aria-label="Clear search" (click)="clearSearch()">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path
+              d="M6 6 L14 14 M14 6 L6 14"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      } @else {
+        <!-- Discoverability for the shortcut, the way most reading apps hint it. -->
+        <kbd class="search__hint" aria-hidden="true">/</kbd>
+      }
+    </div>
+
+    <button
+      type="button"
+      class="icon-button"
+      [attr.aria-label]="theme() === 'light' ? 'Switch to dark theme' : 'Switch to light theme'"
+      [attr.title]="theme() === 'light' ? 'Dark theme' : 'Light theme'"
+      (click)="toggleTheme()"
+    >
+      @if (theme() === 'light') {
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 1 0 10.5 10.5Z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linejoin="round"
+          />
+        </svg>
+      } @else {
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.7" />
+          <path
+            d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+          />
+        </svg>
+      }
+    </button>
+  </div>
+
+  <!-- Thin top bar instead of a jarring full-page spinner on refresh. -->
+  <div class="masthead__progress" [class.masthead__progress--on]="loading() && result()"></div>
+</header>
+
+<main class="content">
+  @if (error(); as message) {
+    <div class="notice notice--error" role="alert">
+      <span class="notice__icon" aria-hidden="true">!</span>
+      <span class="notice__body">
+        <span class="notice__title">Something went wrong</span>
+        <span class="notice__detail">{{ message }}</span>
+      </span>
+      <button type="button" class="notice__action" (click)="retry()">Retry</button>
+    </div>
+  }
+
+  @if (!result() && loading()) {
+    <ul class="stories" aria-hidden="true">
+      @for (row of skeletonRows; track row) {
+        <li class="story story--skeleton">
+          <span class="skeleton skeleton--rank"></span>
+          <span class="story__body">
+            <span class="skeleton skeleton--title"></span>
+            <span class="skeleton skeleton--meta"></span>
+          </span>
+        </li>
+      }
+    </ul>
+  }
+
+  @if (result(); as page) {
+    @if (page.items.length === 0 && !loading()) {
+      <div class="empty">
+        <svg class="empty__icon" viewBox="0 0 48 48" aria-hidden="true">
+          <circle cx="21" cy="21" r="13" fill="none" stroke="currentColor" stroke-width="2.5" />
+          <path d="M31 31 L42 42" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+        </svg>
+        @if (search()) {
+          <p class="empty__title">No stories match “{{ search() }}”</p>
+          <p class="empty__hint">Try a shorter or different term.</p>
+          <button type="button" class="button" (click)="clearSearch()">Clear search</button>
+        } @else {
+          <p class="empty__title">No stories to show.</p>
+        }
+      </div>
+    } @else {
+      <div class="toolbar">
+        <p class="summary">
+          <strong>{{ page.totalCount }}</strong>
+          {{ page.totalCount === 1 ? 'story' : 'stories' }}
+          @if (search()) {
+            matching “{{ search() }}”
+          }
+          <span class="summary__sep">·</span>
+          page {{ page.page }} of {{ page.totalPages }}
+        </p>
+
+        <label class="control">
+          <span class="control__label">Per page</span>
+          <select
+            class="control__select"
+            aria-label="Stories per page"
+            (change)="onPageSizeChange($any($event.target).value)"
+          >
+            @for (size of pageSizes; track size) {
+              <option [value]="size" [selected]="size === pageSize()">{{ size }}</option>
+            }
+          </select>
+        </label>
+      </div>
+
+      <ul class="stories" [class.stories--busy]="loading()">
+        @for (story of page.items; track story.id; let i = $index) {
+          <li class="story">
+            <span class="story__rank">{{ rankOf(i, page) }}</span>
+
+            <span class="story__body">
+              <span class="story__heading">
+                <!--
+                  Some stories have no article to link to (Ask HN and similar). Those render as
+                  plain text rather than a dead anchor.
+                -->
+                @if (story.url) {
+                  <a class="story__title" [href]="story.url" target="_blank" rel="noopener noreferrer">
+                    <!--
+                      Segments, never innerHTML: titles are user-submitted, so the matched runs are
+                      wrapped in <mark> by the template while interpolation keeps escaping them.
+                      Every branch emits an element, so the whitespace between them is dropped and
+                      the rendered text is byte-for-byte the original title.
+                    -->
+                    @for (part of story.title | highlight: search(); track $index) {
+                      @if (part.match) {
+                        <mark class="story__match">{{ part.text }}</mark>
+                      } @else {
+                        <span>{{ part.text }}</span>
+                      }
+                    }
+                  </a>
+                  <span class="story__host">{{ hostOf(story) }}</span>
+                } @else {
+                  <span class="story__title story__title--plain">
+                    @for (part of story.title | highlight: search(); track $index) {
+                      @if (part.match) {
+                        <mark class="story__match">{{ part.text }}</mark>
+                      } @else {
+                        <span>{{ part.text }}</span>
+                      }
+                    }
+                  </span>
+                  <span class="story__badge">no link</span>
+                }
+              </span>
+
+              <span class="story__meta">
+                <span class="score" [class.score--hot]="story.score >= 100">
+                  <span class="score__caret" aria-hidden="true">▲</span>{{ story.score }}
+                </span>
+                @if (story.by) {
+                  <!-- The API matches the author as well as the title, so highlight it too. -->
+                  <span class="meta">
+                    @for (part of story.by | highlight: search(); track $index) {
+                      @if (part.match) {
+                        <mark class="story__match">{{ part.text }}</mark>
+                      } @else {
+                        <span>{{ part.text }}</span>
+                      }
+                    }
+                  </span>
+                }
+                <span class="meta">{{ story.time | relativeTime }}</span>
+                <a
+                  class="meta meta--link"
+                  [href]="discussionUrl(story)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {{ story.descendants }} {{ story.descendants === 1 ? 'comment' : 'comments' }}
+                </a>
+              </span>
+            </span>
+          </li>
+        }
+      </ul>
+
+      <app-pagination
+        [page]="page.page"
+        [totalPages]="page.totalPages"
+        [disabled]="loading()"
+        (pageChange)="onPageChange($event)"
+      />
+    }
+  }
+</main>
