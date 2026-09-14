@@ -1,0 +1,75 @@
+name: deploy-api
+
+# Deploys the API to Azure App Service.
+#
+# Requires one secret: AZURE_API_PUBLISH_PROFILE — the publish profile XML for the web app.
+# Until that secret exists the job is skipped rather than failed, so a missing deployment
+# target never reddens the repo.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: hackernews-api-tm101
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  deploy:
+    name: Build and deploy API
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if no publish profile is configured
+        id: guard
+        run: |
+          if [ -z "${{ secrets.AZURE_API_PUBLISH_PROFILE }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AZURE_API_PUBLISH_PROFILE is not set — skipping deployment."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up .NET
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+
+      # Deploying a build that has not passed its own tests would defeat the point of the gate.
+      - name: Test
+        if: steps.guard.outputs.configured == 'true'
+        working-directory: backend
+        run: dotnet test --configuration Release
+
+      - name: Publish
+        if: steps.guard.outputs.configured == 'true'
+        working-directory: backend
+        run: dotnet publish src/HackerNews.Api --configuration Release --output ${{ runner.temp }}/publish
+
+      - name: Deploy to App Service
+        if: steps.guard.outputs.configured == 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_API_PUBLISH_PROFILE }}
+          package: ${{ runner.temp }}/publish
+
+      - name: Smoke test the deployment
+        if: steps.guard.outputs.configured == 'true'
+        run: |
+          url="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          # F1 has no Always On, so the first request after a deploy wakes a cold instance.
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$url/health" || true)
+            echo "attempt $i: /health -> $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::/health never returned 200 after deployment."
+          exit 1
