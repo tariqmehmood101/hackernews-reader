@@ -11,11 +11,11 @@
 set -euo pipefail
 
 RG=hackernews-rg
-LOCATION=centralus
+LOCATION=westus3            # Central US had no F1 quota on this subscription
 PLAN=hackernews-plan
 API=hackernews-api-tm101
 SWA=hackernews-ui-tm101
-SWA_LOCATION=centralus          # Static Web Apps is available in a subset of regions
+SWA_LOCATION=westus2           # Static Web Apps runs in a subset of regions
 RUNTIME="DOTNETCORE|10.0"
 
 echo "Subscription: $(az account show --query name -o tsv)"

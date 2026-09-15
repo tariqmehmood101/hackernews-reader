@@ -14,8 +14,11 @@ on:
   workflow_dispatch:
 
 env:
+  # The resource name, which is what the deploy action targets.
   AZURE_WEBAPP_NAME: hackernews-api-tm101
-  DOTNET_VERSION: '10.0.x'
+  # The public hostname, which is NOT simply "<name>.azurewebsites.net" — Azure now assigns a
+  # unique suffix per site. Taken from: az webapp show -n <name> -g <rg> --query defaultHostName
+  AZURE_WEBAPP_HOSTNAME: hackernews-api-tm101-ehf9fshdg3cah9hu.westus3-01.azurewebsites.net
 
 jobs:
   deploy:
@@ -63,7 +66,7 @@ jobs:
       - name: Smoke test the deployment
         if: steps.guard.outputs.configured == 'true'
         run: |
-          url="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          url="https://${{ env.AZURE_WEBAPP_HOSTNAME }}"
           # F1 has no Always On, so the first request after a deploy wakes a cold instance.
           for i in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$url/health" || true)
