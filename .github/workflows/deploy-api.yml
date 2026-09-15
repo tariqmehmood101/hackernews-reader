@@ -24,6 +24,10 @@ jobs:
   deploy:
     name: Build and deploy API
     runs-on: ubuntu-latest
+    # The deployment credentials are environment secrets, not repository secrets. Without this
+    # line secrets.AZURE_API_PUBLISH_PROFILE resolves to an empty string and the guard below
+    # skips the deployment while still reporting success.
+    environment: DEV
 
     steps:
       - uses: actions/checkout@v4

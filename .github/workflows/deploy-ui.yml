@@ -16,6 +16,8 @@ jobs:
   deploy:
     name: Build and deploy UI
     runs-on: ubuntu-latest
+    # Secrets live in this environment rather than at repository level.
+    environment: DEV
 
     steps:
       - uses: actions/checkout@v4
