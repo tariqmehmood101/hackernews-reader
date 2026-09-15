@@ -32,10 +32,10 @@ The API warms its cache at startup; the first request may wait a few seconds for
 fetch, after which responses are served from memory.
 
 ```bash
-# Backend: 163 tests + an enforced 80% line-coverage gate
+# Backend: 170 tests + an enforced 80% line-coverage gate
 cd backend && ./scripts/Test-Coverage.ps1
 
-# Frontend: 80 unit tests (end-to-end needs the API running — see Testing below)
+# Frontend: 86 unit tests (end-to-end needs the API running — see Testing below)
 cd frontend && npm run test:ci
 ```
 
@@ -223,10 +223,10 @@ API-compatible with this codebase.
 
 | Suite | Count | What it covers |
 |---|---|---|
-| `backend/tests/HackerNews.UnitTests` | 120 | Paging arithmetic, boundaries and offset overflow, search semantics, validators, both pipeline behaviours, snapshot cache concurrency and timeout, refresher diffing/eviction/failure isolation/concurrency cap, partial-refresh yield floor, the hosted service's loop and shutdown, options binding, HN client parsing, exception mapping, by-id upstream failure vs. caller cancellation |
+| `backend/tests/HackerNews.UnitTests` | 127 | Paging arithmetic, boundaries and offset overflow, search semantics, validators, both pipeline behaviours, snapshot cache concurrency and timeout, refresher diffing/eviction/failure isolation/concurrency cap, partial-refresh yield floor, the hosted service's loop and shutdown, options binding, HN client parsing, exception mapping, by-id upstream failure vs. caller cancellation |
 | `backend/tests/HackerNews.IntegrationTests` | 43 | Real HTTP stack via `WebApplicationFactory`, with only the outbound handler faked — routing, model binding, the mediator pipeline, ProblemDetails, caching behaviour, 503 on upstream failure, CORS allow **and** deny, rate limiting (429) including per-caller buckets behind a proxy, header spoofing, and the health probe's exemption, OpenAPI document |
 | `frontend/src/**/*.spec.ts` | 58 | `StoryApi` params and error paths, search debounce, paging, page size, clear/`/`/`Esc`, linkless rendering, error/retry, pager windowing and steps, pager node identity and focus across a sliding window, relative time, theme store and toggle |
-| `frontend/e2e/full-stack.spec.ts` | 9 | Playwright against the **real API and live feed** — stories render through the whole stack, search narrows, paging doesn't repeat, Last reaches the end, 400/404 contracts, cache latency |
+| `frontend/e2e/full-stack.spec.ts` | 12 | Playwright against the **real API and live feed** — stories render through the whole stack, search narrows, paging doesn't repeat, Last reaches the end, 400/404 contracts, cache latency |
 
 Backend stack: **xunit.v3** · **Shouldly** · **NSubstitute** — all permissively licensed. No test
 touches the network; the upstream API is faked in both suites.

@@ -35,6 +35,92 @@ test.describe('Full stack (real API and live feed)', () => {
     expect(await readTotal(page)).toBeLessThanOrEqual(totalBefore);
   });
 
+  test('renders a linkless story as plain text, never a dead anchor', async ({ page, request }) => {
+    // Text posts are a small fraction of the feed and can sit anywhere in the 500, so ask the API
+    // where one is rather than hoping it lands on the first page. That keeps the test
+    // deterministic while still asserting on what the browser actually renders.
+    const pageSize = 50;
+
+    // 100 is the API's documented maximum, so the whole feed takes several requests.
+    const items: { url: string | null; title: string }[] = [];
+    for (let apiPage = 1; apiPage <= 5; apiPage++) {
+      const feed = await request.get(
+        `${apiBase}/api/stories/newest?page=${apiPage}&pageSize=100`,
+      );
+      expect(feed.ok()).toBe(true);
+      const body = await feed.json();
+      items.push(...body.items);
+      if (!body.hasNextPage) {
+        break;
+      }
+    }
+
+    const index = items.findIndex(story => story.url === null);
+    test.skip(index === -1, 'The whole feed currently contains no text posts.');
+
+    const target = items[index];
+    const targetPage = Math.floor(index / pageSize) + 1;
+
+    await page.goto('/');
+    await expect(page.getByRole('listitem')).toHaveCount(20, { timeout: 30_000 });
+    await page.getByLabel('Stories per page').selectOption(String(pageSize));
+    await expect(page.locator('.summary')).toContainText('page 1 of');
+
+    if (targetPage > 1) {
+      await page.getByRole('button', { name: String(targetPage), exact: true }).click();
+      await expect(page.locator('.summary')).toContainText(`page ${targetPage} of`);
+    }
+
+    const row = page.getByRole('listitem').filter({ hasText: target.title }).first();
+    await expect(row.locator('.story__title--plain')).toHaveText(target.title);
+    await expect(row.locator('a.story__title')).toHaveCount(0);
+    await expect(row.locator('.story__badge')).toHaveText('no link');
+  });
+
+  test('a page size larger than the result set collapses to one page', async ({ page, request }) => {
+    // Pick a term the feed currently answers with a small number of matches, rather than
+    // hardcoding one whose popularity drifts.
+    const pageSize = 50;
+    let term = '';
+    let total = 0;
+    for (const candidate of ['rust', 'openai', 'python', 'kubernetes']) {
+      const res = await request.get(`${apiBase}/api/stories/newest?pageSize=1&search=${candidate}`);
+      const count = (await res.json()).totalCount as number;
+      if (count > 0 && count <= pageSize) {
+        term = candidate;
+        total = count;
+        break;
+      }
+    }
+    test.skip(term === '', `No candidate term currently matches between 1 and ${pageSize} stories.`);
+
+    await page.goto('/');
+    await expect(page.getByRole('listitem')).toHaveCount(20, { timeout: 30_000 });
+
+    await page.getByLabel('Stories per page').selectOption(String(pageSize));
+    await page.locator('.search__input').fill(term);
+    await expect(page.locator('.summary')).toContainText(`matching “${term}”`);
+
+    // Everything fits on one page, so there is nothing to page through.
+    await expect(page.locator('.summary')).toContainText('page 1 of 1');
+    await expect(page.getByRole('listitem')).toHaveCount(total);
+    await expect(page.locator('.pager')).toHaveCount(0);
+  });
+
+  test('total pages tracks the chosen page size across the real feed', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('listitem')).toHaveCount(20, { timeout: 30_000 });
+
+    const summary = page.locator('.summary');
+    const total = Number((await page.locator('.summary strong').textContent())?.replace(/\D/g, ''));
+
+    for (const size of [10, 50]) {
+      await page.getByLabel('Stories per page').selectOption(String(size));
+      await expect(summary).toContainText(`page 1 of ${Math.ceil(total / size)}`);
+      await expect(page.getByRole('listitem')).toHaveCount(Math.min(size, total));
+    }
+  });
+
   test('highlights the search term in the real results', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('listitem')).toHaveCount(20, { timeout: 30_000 });

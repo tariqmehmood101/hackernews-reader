@@ -58,6 +58,34 @@ public sealed class HackerNewsClientTests
     }
 
     [Fact]
+    public async Task Keeps_author_null_when_upstream_omits_it()
+    {
+        // Every field beyond id is optional upstream. A missing author is not a reason to drop
+        // an otherwise valid story.
+        var client = CreateClient(StubHttpMessageHandler.Returning(
+            """{"id":1,"title":"No byline","url":"https://example.com","type":"story"}"""));
+
+        var story = await client.GetStoryAsync(1, Ct);
+
+        story.ShouldNotBeNull();
+        story.By.ShouldBeNull();
+        story.Title.ShouldBe("No byline");
+    }
+
+    [Fact]
+    public async Task Defaults_a_missing_score_and_comment_count_to_zero()
+    {
+        // A brand-new submission arrives before score and descendants are populated.
+        var client = CreateClient(StubHttpMessageHandler.Returning(
+            """{"id":1,"title":"Just posted","url":"https://example.com","type":"story"}"""));
+
+        var story = await client.GetStoryAsync(1, Ct);
+
+        story!.Score.ShouldBe(0);
+        story.Descendants.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Returns_null_when_upstream_answers_with_a_json_null()
     {
         var client = CreateClient(StubHttpMessageHandler.Returning("null"));

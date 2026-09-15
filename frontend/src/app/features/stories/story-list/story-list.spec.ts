@@ -58,6 +58,78 @@ describe('StoryList', () => {
     expect(fixture.debugElement.query(By.css('.story__badge'))).not.toBeNull();
   });
 
+  it('omits the author line for a story that has none', () => {
+    fixture.detectChanges();
+    flushInitial([{ ...story(1), by: null }]);
+
+    const meta = fixture.debugElement.query(By.css('.story__meta')).nativeElement.textContent;
+
+    // No placeholder text where the author would have been.
+    expect(meta).not.toContain('null');
+    expect(meta).not.toContain('undefined');
+    expect(meta).not.toContain('author');
+    // The rest of the meta row must survive the missing author.
+    expect(meta).toContain('comments');
+    expect(fixture.debugElement.query(By.css('.score')).nativeElement.textContent).toContain('1');
+  });
+
+  it('still shows the author when there is one', () => {
+    // Control for the test above: the absence must be caused by the null, not by a broken row.
+    fixture.detectChanges();
+    flushInitial([{ ...story(1), by: 'patio11' }]);
+
+    expect(fixture.debugElement.query(By.css('.story__meta')).nativeElement.textContent)
+      .toContain('patio11');
+  });
+
+  it('renders a linkless story with no author without producing a link', () => {
+    // Both optional fields absent at once — the combination the template branches twice on.
+    fixture.detectChanges();
+    flushInitial([{ ...story(1), url: null, by: null }]);
+
+    expect(fixture.debugElement.query(By.css('a.story__title'))).toBeNull();
+    expect(fixture.debugElement.query(By.css('.story__badge')).nativeElement.textContent.trim())
+      .toBe('no link');
+    expect(fixture.debugElement.query(By.css('.story__title--plain')).nativeElement.textContent)
+      .toBe('Story 1');
+  });
+
+  it('says "1 comment" for one and "comments" for none', () => {
+    fixture.detectChanges();
+    flushInitial([
+      { ...story(1), descendants: 1 },
+      { ...story(2), descendants: 0 },
+      { ...story(3), descendants: 42 },
+    ]);
+
+    const links = fixture.debugElement
+      .queryAll(By.css('.meta--link'))
+      .map(el => el.nativeElement.textContent.trim());
+
+    expect(links).toEqual(['1 comment', '0 comments', '42 comments']);
+  });
+
+  it('says "1 story" in the summary when exactly one matches', fakeAsync(() => {
+    fixture.detectChanges();
+    flushInitial([story(1)]);
+
+    type('rust');
+    tick(StoryList.SearchDebounceMs);
+    http.expectOne(r => r.url === newestUrl).flush(page([story(2)], { totalCount: 1 }));
+    fixture.detectChanges();
+
+    const summary = fixture.debugElement.query(By.css('.summary')).nativeElement.textContent;
+    expect(summary).toContain('1 story');
+    expect(summary).not.toContain('1 stories');
+  }));
+
+  it('hides the pager when everything fits on one page', () => {
+    fixture.detectChanges();
+    flushInitial([story(1), story(2)], { totalCount: 2, totalPages: 1 });
+
+    expect(fixture.debugElement.query(By.css('.pager'))).toBeNull();
+  });
+
   it('debounces typing into a single request', fakeAsync(() => {
     fixture.detectChanges();
     flushInitial([story(1)]);

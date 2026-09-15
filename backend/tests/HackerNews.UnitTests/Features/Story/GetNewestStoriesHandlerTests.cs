@@ -71,6 +71,77 @@ public sealed class GetNewestStoriesHandlerTests
         response.Result.HasNextPage.ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task A_page_size_larger_than_the_whole_feed_yields_a_single_full_page()
+    {
+        var handler = CreateHandler(Given.Stories(45));
+
+        var response = await handler.Handle(
+            new GetNewestStoriesHandler.Query { Page = 1, PageSize = 100 }, Ct);
+
+        response.Result.Items.Count.ShouldBe(45);
+        response.Result.TotalPages.ShouldBe(1);
+        response.Result.HasNextPage.ShouldBeFalse();
+        response.Result.HasPreviousPage.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_page_size_of_one_makes_every_story_its_own_page()
+    {
+        var handler = CreateHandler(Given.Stories(7));
+
+        var response = await handler.Handle(
+            new GetNewestStoriesHandler.Query { Page = 4, PageSize = 1 }, Ct);
+
+        response.Result.Items.ShouldHaveSingleItem().Id.ShouldBe(4);
+        response.Result.TotalPages.ShouldBe(7);
+        response.Result.HasPreviousPage.ShouldBeTrue();
+        response.Result.HasNextPage.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_final_page_carries_the_remainder_and_reports_no_next_page()
+    {
+        // 45 across pages of 20 leaves 5 on page 3 — the case an off-by-one would truncate.
+        var handler = CreateHandler(Given.Stories(45));
+
+        var response = await handler.Handle(
+            new GetNewestStoriesHandler.Query { Page = 3, PageSize = 20 }, Ct);
+
+        response.Result.Items.Count.ShouldBe(5);
+        response.Result.Items[0].Id.ShouldBe(41);
+        response.Result.HasNextPage.ShouldBeFalse();
+        response.Result.HasPreviousPage.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_story_with_no_author_is_still_returned()
+    {
+        // `by` is optional upstream, and the contract allows null rather than dropping the story.
+        var handler = CreateHandler([Given.Story(1, "Anonymous submission", by: null)]);
+
+        var response = await handler.Handle(new GetNewestStoriesHandler.Query(), Ct);
+
+        var story = response.Result.Items.ShouldHaveSingleItem();
+        story.By.ShouldBeNull();
+        story.Title.ShouldBe("Anonymous submission");
+    }
+
+    [Fact]
+    public async Task Searching_matches_the_title_even_when_the_author_is_missing()
+    {
+        // The author filter must tolerate a null rather than throwing while matching.
+        var handler = CreateHandler([
+            Given.Story(1, "Rust without an author", by: null),
+            Given.Story(2, "Go with one", by: "someone")
+        ]);
+
+        var response = await handler.Handle(
+            new GetNewestStoriesHandler.Query { Search = "rust" }, Ct);
+
+        response.Result.Items.ShouldHaveSingleItem().Id.ShouldBe(1);
+    }
+
     [Theory]
     [InlineData("RUST")]
     [InlineData("rust")]
