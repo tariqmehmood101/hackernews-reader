@@ -36,6 +36,27 @@ jobs:
       - name: Build
         run: npm run build:prod
 
+      # The CSP in staticwebapp.config.json sets script-src 'self', which blocks inline event
+      # handlers. Angular's critical-CSS inliner emits <link media="print" onload="this.media='all'">
+      # — with the handler blocked, media stays "print" and the whole stylesheet never applies.
+      # That shipped once and only showed up as "dark mode is broken" in production.
+      - name: Check the build is compatible with the CSP
+        working-directory: frontend
+        run: |
+          index=dist/frontend/browser/index.html
+          fail=0
+          if grep -qoE 'onload=|onerror=|onclick=' "$index"; then
+            echo "::error::index.html contains an inline event handler, which script-src 'self' blocks."
+            grep -oE '<[^>]*on(load|error|click)=[^>]*>' "$index" | head -5
+            fail=1
+          fi
+          if grep -qoE '<link[^>]*rel="stylesheet"[^>]*media="print"' "$index"; then
+            echo "::error::A stylesheet is deferred via media=print, which never activates under this CSP."
+            fail=1
+          fi
+          [ "$fail" = "0" ] && echo "No inline handlers or print-deferred stylesheets."
+          exit $fail
+
       # End-to-end tests need the real API and the live Hacker News feed, so they run in
       # e2e-live.yml (nightly) rather than on every push.
       - name: Unit tests
