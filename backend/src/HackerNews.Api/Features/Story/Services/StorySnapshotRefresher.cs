@@ -13,19 +13,18 @@ public sealed class StorySnapshotRefresher(
     IOptions<StoryCacheOptions> options,
     ILogger<StorySnapshotRefresher> logger) : IStorySnapshotRefresher
 {
-    /// <summary>
-    /// Item detail keyed by story id, reused between passes so a steady-state refresh fetches only
-    /// the handful of stories that are actually new rather than all 500.
-    /// </summary>
-    private readonly ConcurrentDictionary<int, StoryDto> _known = new();
+    /// <summary>Already-downloaded story detail, keyed by id. See the note on the class.</summary>
+    private readonly ConcurrentDictionary<int, StoryDto> _fetchCache = new();
 
     private readonly StoryCacheOptions _options = options.Value;
-    private int _cycle;
+    private int _passCount;
 
+    /// <summary>One pass, in five steps.</summary>
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
-        var ids = await client.GetNewestStoryIdsAsync(cancellationToken);
-        if (ids.Count == 0)
+        // 1. Ask upstream which stories are currently newest.
+        var liveIds = await client.GetNewestStoryIdsAsync(cancellationToken);
+        if (liveIds.Count == 0)
         {
             // An empty id list is far more likely to be an upstream blip than a genuinely empty
             // feed, so keep whatever snapshot we already have.
@@ -33,110 +32,178 @@ public sealed class StorySnapshotRefresher(
             return;
         }
 
-        var previous = cache.Current;
+        var published = cache.Current;
+        var pass = BeginPass();
 
-        var live = ids.ToHashSet();
-        foreach (var stale in _known.Keys.Where(id => !live.Contains(id)))
+        // 2. Forget anything that has fallen out of that window.
+        EvictStoriesNoLongerListed(liveIds);
+
+        // 3. Download what we are missing — normally just the new arrivals.
+        await DownloadAsync(SelectIdsToDownload(liveIds, pass), cancellationToken);
+
+        // 4. Rebuild the feed from the live ids and whatever detail we now hold.
+        var stories = BuildFeed(liveIds);
+
+        // 5. Publish, unless doing so would replace a good snapshot with a gutted one.
+        if (!IsWorthPublishing(stories.Count, liveIds.Count, published))
         {
-            _known.TryRemove(stale, out _);
-        }
-
-        await FetchAsync(SelectIdsToFetch(ids), cancellationToken);
-
-        var stories = ids
-            .Select(id => _known.GetValueOrDefault(id))
-            .OfType<StoryDto>()
-            .OrderByDescending(story => story.Time)
-            .ToList();
-
-        if (!IsWorthPublishing(stories.Count, ids.Count, previous))
-        {
-            // Publishing now would trade a good snapshot for a collapsed one. Keep what we have;
-            // the ids that failed carry no cache entry, so the next pass retries exactly those.
+            // The ids that failed carry no cache entry, so the next pass retries exactly those.
             logger.LogError(
                 "Resolved only {StoryCount} of {IdCount} story ids; keeping the previous snapshot "
                 + "of {PreviousCount}.",
-                stories.Count, ids.Count, previous.Stories.Count);
+                stories.Count, liveIds.Count, published.Stories.Count);
             return;
         }
 
         cache.Replace(new StorySnapshot(stories, DateTimeOffset.UtcNow));
         logger.LogInformation(
-            "Snapshot refreshed: {StoryCount} stories from {IdCount} ids.", stories.Count, ids.Count);
+            "Snapshot refreshed: {StoryCount} stories from {IdCount} ids.",
+            stories.Count, liveIds.Count);
+    }
+
+    /// <summary>What this pass is: its number, and whether it re-downloads everything.</summary>
+    private readonly record struct Pass(int Number, bool IsFullRefresh);
+
+    /// <summary>
+    /// Counts the pass and decides whether it is a full refresh. Counted here rather than inside
+    /// the id selection so the state change is visible in <see cref="RefreshAsync"/>, and only
+    /// after the empty-id guard — a pass that found nothing should not advance the cadence.
+    /// </summary>
+    private Pass BeginPass()
+    {
+        var number = Interlocked.Increment(ref _passCount);
+        var everyN = _options.FullRefreshEveryNCycles;
+
+        return new Pass(number, IsFullRefresh: everyN > 0 && number % everyN == 0);
     }
 
     /// <summary>
-    /// Which ids this pass actually fetches: normally only the ones never seen before, but on a
-    /// full cycle every id, re-fetched <em>over the top of</em> the cached copy. Re-fetching over
-    /// the top rather than clearing first is what keeps a half-failed full refresh from shrinking
-    /// the feed &mdash; a story whose re-fetch fails stays put, merely stale, instead of vanishing.
+    /// Drops cached detail for stories upstream no longer lists. This is what keeps the cache
+    /// bounded to the newest window instead of growing without limit.
     /// </summary>
-    private IReadOnlyList<int> SelectIdsToFetch(IReadOnlyList<int> ids)
+    private void EvictStoriesNoLongerListed(IReadOnlyList<int> liveIds)
     {
-        var cycle = Interlocked.Increment(ref _cycle);
-        if (_options.FullRefreshEveryNCycles > 0 && cycle % _options.FullRefreshEveryNCycles == 0)
-        {
-            logger.LogInformation(
-                "Cycle {Cycle}: re-fetching every story so scores stop drifting.", cycle);
-            return ids;
-        }
+        var live = liveIds.ToHashSet();
 
-        return ids.Where(id => !_known.ContainsKey(id)).ToList();
+        foreach (var goneId in _fetchCache.Keys.Where(id => !live.Contains(id)))
+        {
+            _fetchCache.TryRemove(goneId, out _);
+        }
     }
 
-    private async Task FetchAsync(IReadOnlyList<int> ids, CancellationToken cancellationToken)
+    /// <summary>
+    /// Normally just the ids never seen before. On a full-refresh pass, every id &mdash; because
+    /// reusing cached detail means <c>score</c> and <c>descendants</c> drift, and a periodic
+    /// re-download corrects them.
+    /// </summary>
+    /// <remarks>
+    /// A full refresh downloads <em>over the top of</em> the cache rather than clearing it first.
+    /// That distinction matters: if it cleared first and upstream were degraded, most re-downloads
+    /// would fail and the feed would collapse to a handful of stories. Overwriting means a story
+    /// whose re-download fails simply stays as it was — stale, but present.
+    /// </remarks>
+    private IReadOnlyList<int> SelectIdsToDownload(IReadOnlyList<int> liveIds, Pass pass)
+    {
+        if (!pass.IsFullRefresh)
+        {
+            return liveIds.Where(id => !_fetchCache.ContainsKey(id)).ToList();
+        }
+
+        logger.LogInformation(
+            "Pass {PassNumber}: re-downloading every story so scores stop drifting.", pass.Number);
+
+        return liveIds;
+    }
+
+    /// <summary>
+    /// Downloads the given ids, a bounded number at a time.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The bound is not politeness towards a free API; it is self-preservation, and it would still
+    /// be here against an API we paid for.
+    /// </para>
+    /// <para>
+    /// A pass can list 500 ids. Unbounded, that is 500 sockets at once, because nothing caps the
+    /// typed client's connections per server &mdash; and App Service allots each instance a modest
+    /// number of outbound ports, shared by everything the process does. Worse, the resilience
+    /// pipeline retries, so a bad moment upstream turns 500 requests into a few thousand, and the
+    /// circuit breaker it shares with the single-story lookup trips on our own burst &mdash; making
+    /// <c>GET /api/stories/{id}</c> answer 503 because the refresher stampeded.
+    /// </para>
+    /// </remarks>
+    private async Task DownloadAsync(IReadOnlyList<int> ids, CancellationToken cancellationToken)
     {
         if (ids.Count == 0)
         {
             return;
         }
 
-        logger.LogDebug("Fetching {FetchCount} stories.", ids.Count);
+        logger.LogDebug("Downloading {DownloadCount} stories.", ids.Count);
 
-        using var gate = new SemaphoreSlim(_options.MaxConcurrentItemFetches);
-        await Task.WhenAll(ids.Select(async id =>
+        var options = new ParallelOptions
         {
-            await gate.WaitAsync(cancellationToken);
-            try
-            {
-                if (await client.GetStoryAsync(id, cancellationToken) is { } story)
-                {
-                    _known[id] = story;
-                }
-                else
-                {
-                    // A definitive "gone" — deleted, dead, or purged upstream. Drop any copy we
-                    // hold, which is how a full cycle retires stories that died since we cached
-                    // them. On a first fetch there is nothing to drop and this is a no-op.
-                    _known.TryRemove(id, out _);
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // Transient, unlike a null: one bad item must not abort the pass, and whatever we
-                // already had is kept rather than dropped. It is retried next cycle.
-                logger.LogWarning(ex, "Failed to fetch story {StoryId}; keeping any cached copy.", id);
-            }
-            finally
-            {
-                gate.Release();
-            }
-        }));
+            MaxDegreeOfParallelism = _options.MaxConcurrentItemFetches,
+            CancellationToken = cancellationToken
+        };
+
+        await Parallel.ForEachAsync(ids, options, DownloadOneAsync);
     }
+
+    /// <summary>
+    /// Downloads one story, distinguishing upstream's two kinds of "no story here".
+    /// </summary>
+    /// <remarks>
+    /// A <c>null</c> body is <em>definitive</em>: the story was deleted, flagged dead, or purged,
+    /// so any copy we hold is retired. An exception is <em>transient</em>: the network or upstream
+    /// faltered, so we keep what we have and try again next pass. Collapsing the two would either
+    /// resurrect deleted stories or delete live ones on a bad network moment.
+    /// </remarks>
+    private async ValueTask DownloadOneAsync(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (await client.GetStoryAsync(id, cancellationToken) is { } story)
+            {
+                _fetchCache[id] = story;
+            }
+            else
+            {
+                _fetchCache.TryRemove(id, out _);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // One bad item must never abort the pass.
+            logger.LogWarning(ex, "Failed to fetch story {StoryId}; keeping any cached copy.", id);
+        }
+    }
+
+    /// <summary>
+    /// The feed readers will see: the live ids, in upstream's order of newness, skipping any whose
+    /// detail we could not obtain.
+    /// </summary>
+    private List<StoryDto> BuildFeed(IReadOnlyList<int> liveIds) =>
+        liveIds
+            .Select(id => _fetchCache.GetValueOrDefault(id))
+            .OfType<StoryDto>()
+            .OrderByDescending(story => story.Time)
+            .ToList();
 
     /// <summary>
     /// Whether a pass resolved enough to be allowed to replace what is already published. A cold
     /// cache publishes anything it managed to resolve &mdash; a partial feed beats answering 503,
     /// and the gaps fill in on the next pass.
     /// </summary>
-    private bool IsWorthPublishing(int resolved, int listed, StorySnapshot previous)
+    private bool IsWorthPublishing(int resolved, int listed, StorySnapshot published)
     {
-        if (!previous.IsLoaded)
+        if (!published.IsLoaded)
         {
             return resolved > 0;
         }
 
         var required = (int)Math.Ceiling(listed * (_options.MinimumYieldPercent / 100.0));
+
         return resolved >= Math.Max(1, required);
     }
 }

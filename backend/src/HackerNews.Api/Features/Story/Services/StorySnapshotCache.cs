@@ -35,8 +35,13 @@ public sealed class StorySnapshotCache : IStorySnapshotCache
             return snapshot;
         }
 
-        // Cold start: the background refresher is probably mid-flight. Wait briefly rather than
-        // answering with an empty list, which a client cannot distinguish from "no stories".
+        await WaitForFirstLoadAsync(cancellationToken);
+
+        return Current;
+    }
+    
+    private async Task WaitForFirstLoadAsync(CancellationToken cancellationToken)
+    {
         try
         {
             await _firstLoad.Task.WaitAsync(_initialLoadTimeout, cancellationToken);
@@ -46,7 +51,5 @@ public sealed class StorySnapshotCache : IStorySnapshotCache
             throw new UpstreamUnavailableException(
                 "The Hacker News feed has not loaded yet. Please retry shortly.", ex);
         }
-
-        return Current;
     }
 }
